@@ -1,0 +1,63 @@
+services:
+  # app:
+  #   build: .
+  #   volumes:
+  #     - .:/app
+  #   ports:
+  #     - '4567:4567'
+  #   environment:
+  #     - AWS_ACCESS_KEY_ID=test
+  #     - AWS_SECRET_ACCESS_KEY=test
+  #     - AWS_REGION=us-east-1
+  #     - AWS_S3_BUCKET=nga-data-pipeline-data-backup-local
+  #     - AWS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:nga-data-pipeline-import-notifications-local
+  #     - AWS_OPENSEARCH_ENDPOINT=https://localhost:9200
+  #     - OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongP@ssw0rd123
+  #     - ENDPOINT_URL=http://localhost:4566 # Explicit LocalStack endpoint
+  #   depends_on:
+  #     - localstack
+  #     - opensearch
+  #   networks:
+  #     - default
+
+  localstack:
+    image: localstack/localstack
+    ports:
+      - '4566:4566'
+      - '4571:4571' # SES endpoint
+    environment:
+      - SERVICES=lambda,s3,sns,stepfunctions,iam,es,events,logs,cloudwatch,sts,ses
+      - DEBUG=1
+      - LOCALSTACK_TMPDIR=/tmp/localstack
+      - LAMBDA_EXECUTOR=docker
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - AWS_S3_BUCKET=nga-data-pipeline-data-backup-local
+      - AWS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:nga-data-pipeline-import-notifications-local
+      - AWS_OPENSEARCH_ENDPOINT=https://opensearch:9200
+      - ENDPOINT_URL=http://localhost:4566 # Explicit LocalStack endpoint
+    volumes:
+      - './localstack-init:/etc/localstack/init' # Initial scripts
+      - './localstack-state:/tmp/localstack' # Project-specific state directory
+      - './localstack-init:/docker-entrypoint-initaws.d'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+    networks:
+      - default
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.0
+    ports:
+      - '9200:9200'
+      - '9600:9600'
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - 'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m'
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongP@ssw0rd123
+    networks:
+      - default
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1

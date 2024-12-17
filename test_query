@@ -1,0 +1,127 @@
+#!/usr/bin/env ruby
+
+require 'aws-sdk-opensearchserverless'
+require 'aws-sigv4'
+require 'net/http'
+require 'uri'
+require 'json'
+
+class OpenSearchTest
+  def initialize
+    puts 'Initializing OpenSearch Test...'
+
+    @collection_name = "#{ENV.fetch('PROJECT_NAME', 'nga-data-pipeline')}-#{ENV.fetch('ENVIRONMENT', 'demo')}"
+    @index_name = 'artworks'
+
+    puts "Using collection name: #{@collection_name}"
+
+    # Initialize OpenSearch Serverless client
+    @client = Aws::OpenSearchServerless::Client.new(
+      region: ENV.fetch('AWS_REGION', 'us-east-1')
+    )
+  end
+
+  def run_test!
+    endpoint = ENV['AWS_OPENSEARCH_ENDPOINT'] || get_collection_endpoint
+    puts "Using endpoint: #{endpoint}"
+
+    # Example search query
+    query = {
+      query: {
+        match: {
+          title: 'Multiverse'
+        }
+      }
+    }
+
+    # Make the search request
+    response = signed_request(:get, endpoint, "/#{@index_name}/_search", query.to_json)
+
+    puts "\nSearch Results:"
+    if response.code == '200'
+      results = JSON.parse(response.body)
+      puts JSON.pretty_generate(results)
+    else
+      puts "Error: #{response.code}"
+      puts "Response: #{response.body}"
+    end
+  end
+
+  private
+
+  def get_collection_endpoint
+    response = @client.batch_get_collection(names: [@collection_name])
+    collection = response.collection_details.first
+    collection.collection_endpoint
+  end
+
+  def signed_request(method, endpoint, path, body = nil)
+    uri = URI("#{endpoint}#{path}")
+    puts "Making #{method.upcase} request to: #{uri}"
+
+    # Setup the HTTP request
+    request_class = case method
+                    when :get then Net::HTTP::Get
+                    when :post then Net::HTTP::Post
+                    when :put then Net::HTTP::Put
+                    else raise "Unsupported HTTP method: #{method}"
+                    end
+
+    request = request_class.new(uri)
+    request.body = body if body
+
+    # Add required headers
+    request.content_type = 'application/json' if body
+    request['host'] = uri.host
+    request['x-amz-date'] = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
+    request['x-amz-security-token'] = ENV['AWS_SESSION_TOKEN'] if ENV['AWS_SESSION_TOKEN']
+
+    # Create canonical headers
+    canonical_headers = {
+      'host' => uri.host,
+      'x-amz-date' => request['x-amz-date']
+    }
+    canonical_headers['x-amz-security-token'] = ENV['AWS_SESSION_TOKEN'] if ENV['AWS_SESSION_TOKEN']
+
+    # Generate signature
+    signer = Aws::Sigv4::Signer.new(
+      service: 'aoss',
+      region: ENV.fetch('AWS_REGION', 'us-east-1'),
+      access_key_id: ENV.fetch('AWS_ACCESS_KEY_ID'),
+      secret_access_key: ENV.fetch('AWS_SECRET_ACCESS_KEY'),
+      session_token: ENV['AWS_SESSION_TOKEN']
+    )
+
+    signature = signer.sign_request(
+      http_method: method.to_s.upcase,
+      url: uri.to_s,
+      headers: canonical_headers,
+      body: body
+    )
+
+    # Add authorization headers
+    request['Authorization'] = signature.headers['authorization']
+    request['x-amz-date'] = signature.headers['x-amz-date']
+    request['x-amz-content-sha256'] = signature.headers['x-amz-content-sha256']
+    if signature.headers['x-amz-security-token']
+      request['x-amz-security-token'] = signature.headers['x-amz-security-token']
+    end
+
+    # Send request
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+
+    http.request(request)
+  end
+end
+
+if __FILE__ == $PROGRAM_NAME
+  begin
+    test = OpenSearchTest.new
+    test.run_test!
+  rescue StandardError => e
+    puts "Error: #{e.message}"
+    puts e.backtrace
+  end
+end

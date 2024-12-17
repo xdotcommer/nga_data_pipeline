@@ -1,0 +1,37 @@
+{
+  "Comment": "NGA Data Import Pipeline",
+  "StartAt": "FetchAndStore",
+  "States": {
+    "FetchAndStore": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "ImportToS3",
+          "States": {
+            "ImportToS3": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:REGION:ACCOUNT:function:nga-s3-import",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ImportToOpenSearch",
+          "States": {
+            "ImportToOpenSearch": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:REGION:ACCOUNT:function:nga-opensearch-import",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "NotifyComplete"
+    },
+    "NotifyComplete": {
+      "Type": "Task",
+      "Resource": "arn:aws:sns:REGION:ACCOUNT:import-notifications",
+      "End": true
+    }
+  }
+}

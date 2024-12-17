@@ -1,0 +1,5 @@
+- local vs. server
+- setup terraform
+- ignore or remove S3 importer?  perhaps just move to another bucket that automatically parquets it for you?
+- test remote
+- diagram
